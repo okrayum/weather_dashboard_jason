@@ -1,85 +1,118 @@
 import tkinter as tk
 from tkinter import messagebox
+from PIL import ImageTk, Image
 import requests
-import config
-import csv
-from datetime import datetime
+import os
+from config import API_KEY
+from features import history_tracker, temp_graph, favorite_cities
 
-from features.temp_graph import show_temperature_graph
-
-def fetch_weather():
+def get_weather():
     city = city_entry.get()
     if not city:
-        messagebox.showerror("Error", "Please enter a city name.")
+        messagebox.showerror("Input Error", "Please enter a city name.")
         return
 
-    url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={config.API_KEY}&units=imperial"
-    
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={API_KEY}&units=imperial"
     try:
         response = requests.get(url)
+        response.raise_for_status()
         data = response.json()
 
-        if data.get("cod") != 200:
-            messagebox.showerror("Error", f"City not found: {city}")
-            return
+        temp = data['main']['temp']
+        desc = data['weather'][0]['description']
 
-        # Clear previous text
-        output_text.delete(1.0, tk.END)
+        weather_label.config(text=f"{city}: {temp}°F, {desc}")
+        history_tracker.save_weather(city, temp, desc)
+        update_mascot(desc)
+        status_bar.config(text="Weather updated successfully.", bg="#dfe6e9")
 
-        # Extract and display data
-        temp = data["main"]["temp"]
-        desc = data["weather"][0]["description"]
-        output = f"City: {city}\nTemperature: {temp}°F\nDescription: {desc}"
-        output_text.insert(tk.END, output)
+        city_entry.delete(0, tk.END)
 
-        # Save to CSV
-        save_weather_to_csv(city, temp, desc)
+    except requests.exceptions.RequestException:
+        messagebox.showerror("Connection Error", "Failed to fetch data.")
+        status_bar.config(text="Failed to fetch data.", bg="#fab1a0")
 
-    except Exception as e:
-        messagebox.showerror("Error", str(e))
+def show_history():
+    history_tracker.show_history_window(root)
 
-def save_weather_to_csv(city, temp, desc):
-    filename = "data/weather_data.csv"
-    fieldnames = ["Date", "City", "Temperature (°F)", "Description"]
+def show_graph():
+    temp_graph.show_graph_window(root)
 
-    # Create file and write header if it doesn't exist
+def manage_favorites():
+    favorite_cities.show_favorites_window(root)
+
+def update_mascot(description: str):
     try:
-        with open(filename, mode="x", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=fieldnames)
-            writer.writeheader()
-    except FileExistsError:
-        pass  # File already exists
+        desc_lower = description.lower()
+        if 'sun' in desc_lower:
+            img_name = "sunny.png"
+        elif 'cloud' in desc_lower:
+            img_name = "cloudy.png"
+        elif 'rain' in desc_lower:
+            img_name = "rainy.png"
+        elif 'storm' in desc_lower:
+            img_name = "stormy.png"
+        elif 'snow' in desc_lower:
+            img_name = "snowy.png"
+        elif 'fog' in desc_lower or 'mist' in desc_lower:
+            img_name = "foggy.png"
+        else:
+            img_name = "sunny.png"
 
-    # Append new weather data
-    with open(filename, mode="a", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
-        writer.writerow({
-            "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "City": city,
-            "Temperature (°F)": temp,
-            "Description": desc
-        })        
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        img_path = os.path.join(base_dir, "assets", img_name)
+        mascot_img = ImageTk.PhotoImage(Image.open(img_path).resize((140, 140)))
+        mascot_label.config(image=mascot_img)
+        mascot_label.image = mascot_img  # type: ignore[attr-defined]
 
-# Main window setup
+    except FileNotFoundError:
+        mascot_label.config(text="(Mascot image missing)", image='')
+
+# --- Main Window ---
 root = tk.Tk()
-root.title("Weather Dashboard")
+root.title("Jason's Weather Dashboard")
+root.geometry("600x600")
+root.config(bg="#dfe6e9")
 
-# City entry
-city_entry = tk.Entry(root, width=30)
-city_entry.pack(pady=10)
+# --- Title ---
+title_label = tk.Label(root, text="🌤️ Jason's Weather Dashboard", font=("Arial", 20, "bold"), bg="#dfe6e9")
+title_label.pack(pady=15)
 
-# GUI setup
-# Graph button
-graph_button = tk.Button(root, text="Show Temperature Graph", command=lambda: show_temperature_graph(root))
-graph_button.pack(pady=5)
+# --- City Entry ---
+city_frame = tk.Frame(root, bg="#dfe6e9")
+city_frame.pack(pady=10)
 
-# Fetch button
-fetch_button = tk.Button(root, text="Get Weather", command=fetch_weather)
-fetch_button.pack(pady=5)
+city_label = tk.Label(city_frame, text="Enter City:", font=("Arial", 14), bg="#dfe6e9")
+city_label.pack(side=tk.LEFT, padx=5)
 
-# Text output
-output_text = tk.Text(root, height=10, width=50)
-output_text.pack(pady=10)
+city_entry = tk.Entry(city_frame, font=("Arial", 14), width=20)
+city_entry.pack(side=tk.LEFT, padx=5)
 
-# Run the app
+get_weather_btn = tk.Button(city_frame, text="Get Weather", font=("Arial", 12), bg="#74b9ff", command=get_weather)
+get_weather_btn.pack(side=tk.LEFT, padx=5)
+
+# Bind Enter key to trigger Get Weather
+city_entry.bind("<Return>", lambda event: get_weather())
+
+# --- Weather Display ---
+weather_label = tk.Label(root, text="Weather info will appear here.", font=("Arial", 16), bg="#dfe6e9")
+weather_label.pack(pady=20)
+
+# --- Mascot Image ---
+mascot_label = tk.Label(root, bg="#dfe6e9")
+mascot_label.pack(pady=10)
+
+# --- Feature Buttons ---
+btn_frame = tk.Frame(root, bg="#dfe6e9")
+btn_frame.pack(pady=10)
+
+tk.Button(btn_frame, text="📜 View History", font=("Arial", 12), bg="#fab1a0", command=show_history, width=18).pack(pady=5)
+tk.Button(btn_frame, text="📈 Temperature Graph", font=("Arial", 12), bg="#ffeaa7", command=show_graph, width=18).pack(pady=5)
+tk.Button(btn_frame, text="⭐ Favorites", font=("Arial", 12), bg="#55efc4", command=manage_favorites, width=18).pack(pady=5)
+tk.Button(btn_frame, text="❌ Exit", font=("Arial", 12), bg="#ffeaa7", command=root.destroy, width=18).pack(pady=5)
+
+# --- Status Bar ---
+status_bar = tk.Label(root, text="Welcome to the dashboard!", bd=1, relief=tk.SUNKEN, anchor=tk.W, font=("Arial", 10), bg="#dfe6e9")
+status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
 root.mainloop()
